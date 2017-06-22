@@ -76,13 +76,22 @@ public class OcrGraphic extends GraphicOverlay.Graphic {
     /**
      * Checks whether a point is within the bounding box of this graphic.
      * The provided point should be relative to this graphic's containing overlay.
+     *
      * @param x An x parameter in the relative context of the canvas.
      * @param y A y parameter in the relative context of the canvas.
      * @return True if the provided point is contained within this graphic's bounding box.
      */
+    @Override
     public boolean contains(float x, float y) {
-        // TODO: Check if this graphic's text contains this point.
-        return false;
+        if (mText == null) {
+            return false;
+        }
+        RectF rect = new RectF(mText.getBoundingBox());
+        rect.left = translateX(rect.left);
+        rect.top = translateY(rect.top);
+        rect.right = translateX(rect.right);
+        rect.bottom = translateY(rect.bottom);
+        return (rect.left < x && rect.right > x && rect.top < y && rect.bottom > y);
     }
 
     /**
@@ -90,6 +99,26 @@ public class OcrGraphic extends GraphicOverlay.Graphic {
      */
     @Override
     public void draw(Canvas canvas) {
-        // TODO: Draw the text onto the canvas.
+        if (mText == null) {
+            return;
+        }
+
+        // Draws the bounding box around the TextBlock.
+        RectF rect = new RectF(mText.getBoundingBox());
+        rect.left = translateX(rect.left);
+        rect.top = translateY(rect.top);
+        rect.right = translateX(rect.right);
+        rect.bottom = translateY(rect.bottom);
+        canvas.drawRect(rect, sRectPaint);
+
+        // Render the text at the bottom of the box.
+        // canvas.drawText(mText.getValue(), rect.left, rect.bottom, sTextPaint);
+
+        List<? extends Text> textComponents = mText.getComponents();
+        for (Text currentText : textComponents) {
+            float left = translateX(currentText.getBoundingBox().left);
+            float bottom = translateY(currentText.getBoundingBox().bottom);
+            canvas.drawText(currentText.getValue(), left, bottom, sTextPaint);
+        }
     }
 }
