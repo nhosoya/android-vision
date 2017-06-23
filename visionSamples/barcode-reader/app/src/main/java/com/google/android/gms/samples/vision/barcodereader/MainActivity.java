@@ -17,15 +17,26 @@
 package com.google.android.gms.samples.vision.barcodereader;
 
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.app.Activity;
+import android.support.annotation.NonNull;
+import android.support.customtabs.CustomTabsIntent;
 import android.util.Log;
 import android.view.View;
 import android.widget.CompoundButton;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.google.android.gms.common.api.CommonStatusCodes;
 import com.google.android.gms.vision.barcode.Barcode;
+
+import io.reactivex.Observable;
+import io.reactivex.Single;
+import io.reactivex.SingleObserver;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.schedulers.Schedulers;
 
 /**
  * Main activity demonstrating how to pass extra parameters to an activity that
@@ -47,13 +58,19 @@ public class MainActivity extends Activity implements View.OnClickListener {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        statusMessage = (TextView)findViewById(R.id.status_message);
-        barcodeValue = (TextView)findViewById(R.id.barcode_value);
+        statusMessage = (TextView) findViewById(R.id.status_message);
+        barcodeValue = (TextView) findViewById(R.id.barcode_value);
 
         autoFocus = (CompoundButton) findViewById(R.id.auto_focus);
         useFlash = (CompoundButton) findViewById(R.id.use_flash);
 
         findViewById(R.id.read_barcode).setOnClickListener(this);
+
+        Intent intent = new Intent(this, BarcodeCaptureActivity.class);
+        intent.putExtra(BarcodeCaptureActivity.AutoFocus, true);
+        intent.putExtra(BarcodeCaptureActivity.UseFlash, useFlash.isChecked());
+
+        startActivityForResult(intent, RC_BARCODE_CAPTURE);
     }
 
     /**
@@ -103,7 +120,10 @@ public class MainActivity extends Activity implements View.OnClickListener {
                 if (data != null) {
                     Barcode barcode = data.getParcelableExtra(BarcodeCaptureActivity.BarcodeObject);
                     statusMessage.setText(R.string.barcode_success);
-                    barcodeValue.setText(barcode.displayValue);
+                    barcodeValue.setText(resolveFormat(barcode) + ": " + barcode.displayValue);
+                    if (isJANCode(barcode)) {
+                        fetchItemDetail(barcode.displayValue);
+                    }
                     Log.d(TAG, "Barcode read: " + barcode.displayValue);
                 } else {
                     statusMessage.setText(R.string.barcode_failure);
@@ -113,9 +133,71 @@ public class MainActivity extends Activity implements View.OnClickListener {
                 statusMessage.setText(String.format(getString(R.string.barcode_error),
                         CommonStatusCodes.getStatusCodeString(resultCode)));
             }
-        }
-        else {
+        } else {
             super.onActivityResult(requestCode, resultCode, data);
         }
+    }
+
+    private void fetchItemDetail(String displayValue) {
+        ApiClient.getInstance().getItemDetail(displayValue)
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(new SingleObserver<ApiClient.ItemDetail>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
+                        Log.d(TAG, "onSubscribe");
+                    }
+
+                    @Override
+                    public void onSuccess(ApiClient.ItemDetail value) {
+                        Log.d(TAG, "onSuccess");
+                        Toast.makeText(MainActivity.this, value.resultSet.hoge.result.item.name, Toast.LENGTH_LONG).show();
+                        CustomTabsIntent.Builder builder = new CustomTabsIntent.Builder();
+                        CustomTabsIntent customTabsIntent = builder.build();
+                        customTabsIntent.launchUrl(MainActivity.this, Uri.parse(value.resultSet.hoge.result.item.url));
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+                        Log.d(TAG, "onError");
+                    }
+                });
+    }
+
+    private String resolveFormat(@NonNull Barcode barcode) {
+        switch (barcode.format) {
+            case Barcode.CODE_128:
+                return "CODE_128";
+            case Barcode.CODE_39:
+                return "CODE_39";
+            case Barcode.CODE_93:
+                return "CODE_93";
+            case Barcode.CODABAR:
+                return "CODABAR";
+            case Barcode.DATA_MATRIX:
+                return "DATA_MATRIX";
+            case Barcode.EAN_13:
+                return "EAN_13";
+            case Barcode.EAN_8:
+                return "EAN_8";
+            case Barcode.ITF:
+                return "ITF";
+            case Barcode.QR_CODE:
+                return "QR_CODE";
+            case Barcode.UPC_A:
+                return "UPC_A";
+            case Barcode.UPC_E:
+                return "UPC_E";
+            case Barcode.PDF417:
+                return "PDF417";
+            case Barcode.AZTEC:
+                return "AZTEC";
+            default:
+                return "";
+        }
+    }
+
+    private boolean isJANCode(@NonNull Barcode barcode) {
+        return barcode.format == Barcode.EAN_8 || barcode.format == Barcode.EAN_13;
     }
 }

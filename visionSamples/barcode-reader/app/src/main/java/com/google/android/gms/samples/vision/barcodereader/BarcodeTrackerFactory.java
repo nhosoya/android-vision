@@ -15,7 +15,10 @@
  */
 package com.google.android.gms.samples.vision.barcodereader;
 
+import android.content.Context;
+
 import com.google.android.gms.samples.vision.barcodereader.ui.camera.GraphicOverlay;
+import com.google.android.gms.vision.Detector;
 import com.google.android.gms.vision.MultiProcessor;
 import com.google.android.gms.vision.Tracker;
 import com.google.android.gms.vision.barcode.Barcode;
@@ -26,14 +29,16 @@ import com.google.android.gms.vision.barcode.Barcode;
  */
 class BarcodeTrackerFactory implements MultiProcessor.Factory<Barcode> {
     private GraphicOverlay<BarcodeGraphic> mGraphicOverlay;
+    private Context mContext;
 
-    BarcodeTrackerFactory(GraphicOverlay<BarcodeGraphic> barcodeGraphicOverlay) {
+    BarcodeTrackerFactory(GraphicOverlay<BarcodeGraphic> barcodeGraphicOverlay, Context context) {
         mGraphicOverlay = barcodeGraphicOverlay;
+        mContext = context;
     }
 
     @Override
     public Tracker<Barcode> create(Barcode barcode) {
-        BarcodeGraphic graphic = new BarcodeGraphic(mGraphicOverlay);
+        BarcodeGraphic graphic = new BarcodeGraphic(mGraphicOverlay, mContext);
         return new BarcodeGraphicTracker(mGraphicOverlay, graphic);
     }
 

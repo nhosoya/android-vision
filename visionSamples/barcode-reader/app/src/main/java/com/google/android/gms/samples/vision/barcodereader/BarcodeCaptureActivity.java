@@ -26,12 +26,15 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.hardware.Camera;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
+import android.support.customtabs.CustomTabsIntent;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.AppCompatImageView;
 import android.util.Log;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
@@ -44,13 +47,21 @@ import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.gms.common.api.CommonStatusCodes;
 import com.google.android.gms.samples.vision.barcodereader.ui.camera.CameraSource;
 import com.google.android.gms.samples.vision.barcodereader.ui.camera.CameraSourcePreview;
-
 import com.google.android.gms.samples.vision.barcodereader.ui.camera.GraphicOverlay;
+import com.google.android.gms.vision.Detector;
+import com.google.android.gms.vision.MultiDetector;
 import com.google.android.gms.vision.MultiProcessor;
 import com.google.android.gms.vision.barcode.Barcode;
 import com.google.android.gms.vision.barcode.BarcodeDetector;
+import com.squareup.picasso.Picasso;
 
 import java.io.IOException;
+import java.util.HashSet;
+
+import io.reactivex.SingleObserver;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.schedulers.Schedulers;
 
 /**
  * Activity for the multi-tracker app.  This app detects barcodes and displays the value with the
@@ -106,9 +117,9 @@ public final class BarcodeCaptureActivity extends AppCompatActivity {
         gestureDetector = new GestureDetector(this, new CaptureGestureListener());
         scaleGestureDetector = new ScaleGestureDetector(this, new ScaleListener());
 
-        Snackbar.make(mGraphicOverlay, "Tap to capture. Pinch/Stretch to zoom",
-                Snackbar.LENGTH_LONG)
-                .show();
+//        Snackbar.make(mGraphicOverlay, "Tap to capture. Pinch/Stretch to zoom",
+//                Snackbar.LENGTH_LONG)
+//                .show();
     }
 
     /**
@@ -153,11 +164,13 @@ public final class BarcodeCaptureActivity extends AppCompatActivity {
         return b || c || super.onTouchEvent(e);
     }
 
+    private HashSet<String> fetchedItems = new HashSet<>();
+
     /**
      * Creates and starts the camera.  Note that this uses a higher resolution in comparison
      * to other detection examples to enable the barcode detector to detect small barcodes
      * at long distances.
-     *
+     * <p>
      * Suppressing InlinedApi since there is a check that the minimum version is met before using
      * the constant.
      */
@@ -169,12 +182,42 @@ public final class BarcodeCaptureActivity extends AppCompatActivity {
         // is set to receive the barcode detection results, track the barcodes, and maintain
         // graphics for each barcode on screen.  The factory is used by the multi-processor to
         // create a separate tracker instance for each barcode.
-        BarcodeDetector barcodeDetector = new BarcodeDetector.Builder(context).build();
-        BarcodeTrackerFactory barcodeFactory = new BarcodeTrackerFactory(mGraphicOverlay);
-        barcodeDetector.setProcessor(
-                new MultiProcessor.Builder<>(barcodeFactory).build());
+        BarcodeDetector barcodeDetector1 = new BarcodeDetector.Builder(context)
+                .setBarcodeFormats(Barcode.ALL_FORMATS)
+                .build();
+        BarcodeTrackerFactory barcodeFactory = new BarcodeTrackerFactory(mGraphicOverlay, this);
+        barcodeDetector1.setProcessor(new MultiProcessor.Builder<>(barcodeFactory).build());
 
-        if (!barcodeDetector.isOperational()) {
+//        BarcodeDetector barcodeDetector2 = new BarcodeDetector.Builder(context)
+//                .setBarcodeFormats(Barcode.ALL_FORMATS)
+//                .build();
+//        barcodeDetector2.setProcessor(new Detector.Processor<Barcode>() {
+//            @Override
+//            public void release() {
+//
+//            }
+//
+//            @Override
+//            public void receiveDetections(Detector.Detections<Barcode> detections) {
+//                for (int i = 0; i < detections.getDetectedItems().size(); i++) {
+//                    int key = detections.getDetectedItems().keyAt(i);
+//                    Barcode barcode = detections.getDetectedItems().get(key);
+//                    // String barcodeValue = barcode.rawValue;
+//                    if (isJANCode(barcode) && !fetchedItems.contains(barcode.displayValue)) {
+//                        fetchedItems.add(barcode.displayValue);
+//                        fetchItemDetail(barcode.displayValue);
+//                    }
+//
+//                }
+//            }
+//        });
+
+        MultiDetector multiDetector = new MultiDetector.Builder()
+                .add(barcodeDetector1)
+                // .add(barcodeDetector2)
+                .build();
+
+        if (!multiDetector.isOperational()) {
             // Note: The first time that an app using the barcode or face API is installed on a
             // device, GMS will download a native libraries to the device in order to do detection.
             // Usually this completes before the app is run for the first time.  But if that
@@ -200,7 +243,7 @@ public final class BarcodeCaptureActivity extends AppCompatActivity {
         // Creates and starts the camera.  Note that this uses a higher resolution in comparison
         // to other detection examples to enable the barcode detector to detect small barcodes
         // at long distances.
-        CameraSource.Builder builder = new CameraSource.Builder(getApplicationContext(), barcodeDetector)
+        CameraSource.Builder builder = new CameraSource.Builder(getApplicationContext(), multiDetector)
                 .setFacing(CameraSource.CAMERA_FACING_BACK)
                 .setRequestedPreviewSize(1600, 1024)
                 .setRequestedFps(15.0f);
@@ -214,6 +257,62 @@ public final class BarcodeCaptureActivity extends AppCompatActivity {
         mCameraSource = builder
                 .setFlashMode(useFlash ? Camera.Parameters.FLASH_MODE_TORCH : null)
                 .build();
+    }
+
+    private void fetchItemDetail(String displayValue) {
+        ApiClient.getInstance().getItemDetail(displayValue)
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(new SingleObserver<ApiClient.ItemDetail>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
+                        Log.d(TAG, "onSubscribe");
+                    }
+
+                    @Override
+                    public void onSuccess(ApiClient.ItemDetail value) {
+                        Log.d(TAG, "onSuccess");
+                        fuga(value);
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+                        Log.d(TAG, "onError");
+                    }
+                });
+    }
+
+    private void fuga(ApiClient.ItemDetail detail) {
+        try {
+            Picasso picasso = new Picasso.Builder(this)
+                    .listener(new Picasso.Listener() {
+                        @Override
+                        public void onImageLoadFailed(Picasso picasso, Uri uri, Exception exception) {
+                            Log.d(TAG, exception.getMessage());
+                        }
+                    })
+                    .build();
+
+            AppCompatImageView imageView = new AppCompatImageView(this);
+            picasso.load(detail.resultSet.hoge.result.item.image.mediumUrl)
+                    .into(imageView);
+
+            new android.support.v7.app.AlertDialog.Builder(this)
+                    .setView(imageView)
+                    .create()
+                    .show();
+
+            // Toast.makeText(BarcodeCaptureActivity.this, value.resultSet.hoge.result.item.name, Toast.LENGTH_LONG).show();
+            // CustomTabsIntent.Builder builder = new CustomTabsIntent.Builder();
+            // CustomTabsIntent customTabsIntent = builder.build();
+            // customTabsIntent.launchUrl(BarcodeCaptureActivity.this, Uri.parse(value.resultSet.hoge.result.item.url));
+        } catch (Exception e) {
+            Log.d(TAG, e.getMessage());
+        }
+    }
+
+    private boolean isJANCode(@NonNull Barcode barcode) {
+        return barcode.format == Barcode.EAN_8 || barcode.format == Barcode.EAN_13;
     }
 
     /**
@@ -277,7 +376,7 @@ public final class BarcodeCaptureActivity extends AppCompatActivity {
         if (grantResults.length != 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             Log.d(TAG, "Camera permission granted - initialize the camera source");
             // we have permission, so create the camerasource
-            boolean autoFocus = getIntent().getBooleanExtra(AutoFocus,false);
+            boolean autoFocus = getIntent().getBooleanExtra(AutoFocus, false);
             boolean useFlash = getIntent().getBooleanExtra(UseFlash, false);
             createCameraSource(autoFocus, useFlash);
             return;
@@ -341,6 +440,7 @@ public final class BarcodeCaptureActivity extends AppCompatActivity {
 
         // Find the barcode whose center is closest to the tapped point.
         Barcode best = null;
+        BarcodeGraphic bestGraphic = null;
         float bestDistance = Float.MAX_VALUE;
         for (BarcodeGraphic graphic : mGraphicOverlay.getGraphics()) {
             Barcode barcode = graphic.getBarcode();
@@ -354,16 +454,19 @@ public final class BarcodeCaptureActivity extends AppCompatActivity {
             float distance = (dx * dx) + (dy * dy);  // actually squared distance
             if (distance < bestDistance) {
                 best = barcode;
+                bestGraphic = graphic;
                 bestDistance = distance;
             }
         }
 
         if (best != null) {
-            Intent data = new Intent();
-            data.putExtra(BarcodeObject, best);
-            setResult(CommonStatusCodes.SUCCESS, data);
-            finish();
-            return true;
+            CustomTabsIntent.Builder builder = new CustomTabsIntent.Builder();
+            CustomTabsIntent customTabsIntent = builder.build();
+            try {
+                customTabsIntent.launchUrl(BarcodeCaptureActivity.this, Uri.parse(bestGraphic.getUrl()));
+            } catch (Exception e) {
+
+            }
         }
         return false;
     }

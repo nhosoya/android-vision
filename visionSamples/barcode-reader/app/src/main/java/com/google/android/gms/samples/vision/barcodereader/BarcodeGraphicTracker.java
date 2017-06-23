@@ -41,6 +41,7 @@ class BarcodeGraphicTracker extends Tracker<Barcode> {
     @Override
     public void onNewItem(int id, Barcode item) {
         mGraphic.setId(id);
+        mGraphic.fetch(item);
     }
 
     /**
